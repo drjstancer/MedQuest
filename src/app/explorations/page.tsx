@@ -1,9 +1,11 @@
 import Link from 'next/link';
 
-import { explorations } from '@/data/explorations';
+import { fetchExplorations } from '@/lib/data/explorations';
 import AmbientBackground from '@/components/cinematic/AmbientBackground';
 
-export default function ExplorationsPage() {
+export default async function ExplorationsPage() {
+  const explorations = await fetchExplorations();
+
   return (
     <main className="min-h-screen bg-[#020817] text-white px-6 py-12"> 
         <AmbientBackground />

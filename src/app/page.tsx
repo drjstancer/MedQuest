@@ -1,28 +1,18 @@
-import Link from 'next/link';
+import { fetchExplorations } from '@/lib/data/explorations';
 
-export default function HomePage() {
+export default async function HomePage() {
+  const explorations =
+    await fetchExplorations();
+
   return (
-    <main className="min-h-screen bg-[#020817] text-white flex flex-col items-center justify-center px-6 text-center">
-      <p className="uppercase tracking-[0.3em] text-cyan-400 text-sm mb-6">
-        Mizzou Med Presents
-      </p>
-
-      <h1 className="text-6xl md:text-8xl font-black mb-6">
-        MedQuest
+    <main className="min-h-screen bg-black text-white p-12">
+      <h1 className="text-5xl font-black mb-8">
+        Supabase Connected
       </h1>
 
-      <p className="max-w-2xl text-slate-300 text-xl leading-relaxed mb-10">
-        Interactive healthcare career explorations designed to help
-        students uncover pathways, solve clinical mysteries, and
-        discover the people behind patient care.
-      </p>
-
-      <Link
-        href="/explorations"
-        className="rounded-2xl bg-cyan-400 text-slate-950 px-8 py-5 font-black hover:scale-105 transition-all duration-300"
-      >
-        Begin Exploring
-      </Link>
+      <pre className="text-sm">
+        {JSON.stringify(explorations, null, 2)}
+      </pre>
     </main>
   );
 }
