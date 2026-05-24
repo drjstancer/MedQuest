@@ -43,7 +43,7 @@ learnMoreUrl:
   'https://www.naemt.org/',
 
 youtubeVideoId:
-  'k0k6tWrISBM',
+  'https://youtu.be/k0k6tWrISBM?si=k1hCZ2GjSyArb4vV',
 
     tags: ['emergency', 'teamwork', 'fast-paced'],
   },
