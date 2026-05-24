@@ -57,7 +57,7 @@ export default async function ExplorationsPage() {
               </p>
 
               <div className="flex flex-wrap gap-3">
-                {exploration.tags.map((tag) => (
+                {exploration.tags.map((tag: string) => (
                   <span
                     key={tag}
                     className="px-3 py-1 rounded-full bg-cyan-400/10 border border-cyan-400/20 text-cyan-200 text-xs uppercase tracking-wide"
