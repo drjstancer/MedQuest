@@ -23,7 +23,7 @@ export async function fetchCluesByExplorationId(
     careerId:
       clue.career_id,
 
-    displayOrder:
+    order:
       clue.display_order,
 
     clueText:

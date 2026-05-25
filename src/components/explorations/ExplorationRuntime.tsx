@@ -12,6 +12,11 @@ import {
 import CareerSpotlightCard from '@/components/careers/CareerSpotlightCard';
 import CinematicIntro from '@/components/cinematic/CinematicIntro';
 import { saveJourneyEntry } from '@/lib/journey-storage';
+import {
+  markExplorationCompleted,
+  saveProgressEntry,
+  type ExplorationProgressEntry,
+} from '@/lib/progress-storage';
 import type {
   Career,
   Clue,
@@ -19,8 +24,17 @@ import type {
   ReflectionPrompt,
 } from '@/types/exploration';
 
+interface RuntimeExploration extends Exploration {
+  ecosystemId?: string;
+  ecosystemTitle?: string;
+  environment?: string;
+  patientInteractionLevel?: string;
+  teamworkIntensity?: string;
+  technologyIntensity?: string;
+}
+
 interface ExplorationRuntimeProps {
-  exploration: Exploration | null;
+  exploration: RuntimeExploration | null;
   career: Career | null;
   clues: Clue[];
   reflections: ReflectionPrompt[];
@@ -85,6 +99,37 @@ function buildCareerOptions(
   ];
 }
 
+function buildProgressEntry(
+  exploration: RuntimeExploration,
+  clues: Clue[],
+  status: ExplorationProgressEntry['status']
+): ExplorationProgressEntry {
+  const now = new Date().toISOString();
+
+  return {
+    explorationId: exploration.id,
+    explorationSlug: exploration.slug,
+    explorationTitle: exploration.title,
+    ecosystemId: exploration.ecosystemId ?? 'supabase',
+    ecosystemTitle:
+      exploration.ecosystemTitle ?? 'Healthcare Exploration',
+    difficulty: exploration.difficulty,
+    archetype: exploration.archetype,
+    environment:
+      exploration.environment ?? 'Healthcare systems',
+    patientInteractionLevel:
+      exploration.patientInteractionLevel ?? 'Moderate',
+    teamworkIntensity:
+      exploration.teamworkIntensity ?? 'Moderate',
+    technologyIntensity:
+      exploration.technologyIntensity ?? 'Moderate',
+    clueCategories: clues.map((clue) => clue.category),
+    status,
+    lastViewedAt: now,
+    completedAt: status === 'completed' ? now : undefined,
+  };
+}
+
 export default function ExplorationRuntime({
   exploration,
   career,
@@ -141,6 +186,31 @@ export default function ExplorationRuntime({
 
     return () => window.clearInterval(timer);
   }, [hasStarted, revealMode]);
+
+  useEffect(() => {
+    if (!exploration) return;
+
+    saveProgressEntry(
+      buildProgressEntry(exploration, clues, 'viewed')
+    );
+  }, [clues, exploration]);
+
+  useEffect(() => {
+    if (!exploration || !hasStarted) return;
+
+    saveProgressEntry(
+      buildProgressEntry(exploration, clues, 'started')
+    );
+  }, [clues, exploration, hasStarted]);
+
+  useEffect(() => {
+    if (!exploration || !revealMode) return;
+
+    saveProgressEntry(
+      buildProgressEntry(exploration, clues, 'completed')
+    );
+    markExplorationCompleted(exploration.id);
+  }, [clues, exploration, revealMode]);
 
   useEffect(() => {
     return () => {
@@ -232,7 +302,7 @@ export default function ExplorationRuntime({
           href="/explorations"
           className="inline-flex items-center gap-2 text-cyan-300 hover:text-cyan-200 transition-colors mb-10"
         >
-          â† Back to Exploration Hub
+          Back to Exploration Hub
         </Link>
 
         <div className="mb-10">

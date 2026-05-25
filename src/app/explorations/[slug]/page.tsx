@@ -15,6 +15,9 @@ import {
 import {
   fetchReflectionsByExplorationId,
 } from '@/lib/data/reflections';
+import {
+  getExplorationFromCatalog,
+} from '@/lib/catalog';
 
 export default async function ExplorationPage({
   params,
@@ -30,7 +33,12 @@ export default async function ExplorationPage({
       resolvedParams.slug
     );
 
-  if (!exploration) {
+  const catalogExploration =
+    !exploration
+      ? getExplorationFromCatalog(resolvedParams.slug)
+      : null;
+
+  if (!exploration && !catalogExploration) {
     return (
       <main className="min-h-screen bg-black text-white p-12">
         Exploration not found.
@@ -38,24 +46,37 @@ export default async function ExplorationPage({
     );
   }
 
+  if (catalogExploration) {
+    return (
+      <ExplorationRuntime
+        exploration={catalogExploration}
+        career={catalogExploration.featuredCareer ?? null}
+        clues={catalogExploration.clues}
+        reflections={catalogExploration.reflections}
+      />
+    );
+  }
+
+  const supabaseExploration = exploration;
+
   const career =
     await fetchCareerById(
-      exploration.featuredCareerId
+      supabaseExploration.featuredCareerId
     );
 
   const clues =
     await fetchCluesByExplorationId(
-      exploration.id
+      supabaseExploration.id
     );
 
   const reflections =
     await fetchReflectionsByExplorationId(
-      exploration.id
+      supabaseExploration.id
     );
 
   return (
     <ExplorationRuntime
-      exploration={exploration}
+      exploration={supabaseExploration}
       career={career}
       clues={clues}
       reflections={reflections}
