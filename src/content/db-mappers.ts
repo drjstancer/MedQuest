@@ -5,6 +5,27 @@ import type {
   ReflectionPrompt,
 } from '@/types/exploration';
 
+import type {
+  EcosystemRegistryEntry,
+  EcosystemSeedMetadata,
+} from './seed-types';
+
+export interface EcosystemRow {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  featured_pathways: string[];
+  intended_difficulty_distribution: {
+    Easy: number;
+    Medium: number;
+    Hard: number;
+  };
+  age_bands: string[];
+  future_capabilities: string[];
+  tags: string[];
+}
+
 export interface CareerRow {
   id: string;
   slug: string;
@@ -59,6 +80,11 @@ export interface ReflectionRow {
   prompt: string;
 }
 
+export interface ExplorationEcosystemRow {
+  exploration_id: string;
+  ecosystem_id: string;
+}
+
 export function toCareerRow(career: Career): CareerRow {
   return {
     id: career.id,
@@ -80,6 +106,44 @@ export function toCareerRow(career: Career): CareerRow {
     youtube_search_url: career.youtubeSearchUrl,
     tags: career.tags,
   };
+}
+
+export function toEcosystemRow(
+  metadata: EcosystemSeedMetadata,
+  registryEntry?: EcosystemRegistryEntry
+): EcosystemRow {
+  return {
+    id: metadata.id,
+    slug: metadata.id,
+    title: metadata.title,
+    description: metadata.description,
+    featured_pathways:
+      metadata.featuredPathways ??
+      registryEntry?.featuredPathways ??
+      [],
+    intended_difficulty_distribution:
+      metadata.intendedDifficultyDistribution ??
+      registryEntry?.intendedDifficultyDistribution ?? {
+        Easy: 0,
+        Medium: 0,
+        Hard: 0,
+      },
+    age_bands:
+      metadata.ageBands ?? registryEntry?.ageBands ?? [],
+    future_capabilities:
+      registryEntry?.futureCapabilities ?? [],
+    tags: metadata.tags,
+  };
+}
+
+export function toExplorationEcosystemRows(
+  ecosystemId: string,
+  explorations: Exploration[]
+): ExplorationEcosystemRow[] {
+  return explorations.map((exploration) => ({
+    exploration_id: exploration.id,
+    ecosystem_id: ecosystemId,
+  }));
 }
 
 export function toExplorationRow(

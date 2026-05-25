@@ -2,6 +2,8 @@
 
 require('./register-ts.cjs');
 
+const fs = require('fs');
+const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { ecosystemRegistry } = require('../src/content/ecosystem-registry');
 const { ecosystemSeeds } = require('../src/content/ecosystems');
@@ -11,6 +13,49 @@ const {
 } = require('../src/content/validation');
 
 const validModes = new Set(['validate', 'dry-run', 'seed']);
+
+function loadLocalEnv() {
+  for (const filename of ['.env.local', '.env']) {
+    const filePath = path.resolve(__dirname, '..', filename);
+
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+
+    const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+
+    lines.forEach((line) => {
+      const trimmedLine = line.trim();
+
+      if (
+        trimmedLine.length === 0 ||
+        trimmedLine.startsWith('#')
+      ) {
+        return;
+      }
+
+      const separatorIndex = trimmedLine.indexOf('=');
+
+      if (separatorIndex === -1) {
+        return;
+      }
+
+      const key = trimmedLine.slice(0, separatorIndex).trim();
+      let value = trimmedLine.slice(separatorIndex + 1).trim();
+
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    });
+  }
+}
 
 function getMode() {
   const modeArgument = process.argv.find((argument) =>
@@ -32,6 +77,7 @@ function getMode() {
 function countRows(seeds) {
   return seeds.reduce(
     (totals, seed) => ({
+      ecosystems: totals.ecosystems + 1,
       careers: totals.careers + seed.careers.length,
       explorations:
         totals.explorations + seed.explorations.length,
@@ -40,6 +86,7 @@ function countRows(seeds) {
         totals.reflections + seed.reflections.length,
     }),
     {
+      ecosystems: 0,
       careers: 0,
       explorations: 0,
       clues: 0,
@@ -163,6 +210,33 @@ function printContentSummary(mode, issues) {
   };
 }
 
+function findRegistryEntry(seed) {
+  return ecosystemRegistry.find(
+    (entry) => entry.id === seed.metadata.id
+  );
+}
+
+function createOperationTotals() {
+  return {
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+  };
+}
+
+function addOperationTotals(totals, tableResult) {
+  totals.inserted += tableResult.inserted ?? 0;
+  totals.updated += tableResult.updated ?? 0;
+  totals.skipped += tableResult.skippedCount ?? 0;
+}
+
+function printOperationSummary(operationTotals) {
+  console.log('\nOperation summary');
+  console.log(`Inserted: ${operationTotals.inserted}`);
+  console.log(`Updated: ${operationTotals.updated}`);
+  console.log(`Skipped: ${operationTotals.skipped}`);
+}
+
 function createSupabaseClient() {
   const supabaseUrl =
     process.env.SUPABASE_URL ||
@@ -184,6 +258,8 @@ function createSupabaseClient() {
 }
 
 async function run() {
+  loadLocalEnv();
+
   const mode = getMode();
   const validationIssues = [
     ...validateAllEcosystemSeeds(ecosystemSeeds),
@@ -208,7 +284,7 @@ async function run() {
     for (const seed of ecosystemSeeds) {
       const result = await seedEcosystem({}, seed, {
         dryRun: true,
-      });
+      }, findRegistryEntry(seed));
 
       console.log(`\nDry run: ${seed.metadata.title}`);
       result.results.forEach((tableResult) => {
@@ -224,21 +300,27 @@ async function run() {
   }
 
   const supabase = createSupabaseClient();
+  const operationTotals = createOperationTotals();
 
   for (const seed of ecosystemSeeds) {
     const result = await seedEcosystem(supabase, seed, {
       dryRun: false,
-      onConflict: 'id',
-    });
+    }, findRegistryEntry(seed));
 
     console.log(`\nSeeded: ${seed.metadata.title}`);
     result.results.forEach((tableResult) => {
+      addOperationTotals(operationTotals, tableResult);
       console.log(
-        `- ${tableResult.table}: ${tableResult.rows} rows upserted`
+        `- ${tableResult.table}: ` +
+          `${tableResult.inserted} inserted, ` +
+          `${tableResult.updated} updated, ` +
+          `${tableResult.skippedCount} skipped ` +
+          `(${tableResult.rows} total)`
       );
     });
   }
 
+  printOperationSummary(operationTotals);
   console.log('\nProduction seeding complete.');
 }
 

@@ -9,7 +9,8 @@
     "lint": "eslint",
     "seed:validate": "node scripts/seed-content.cjs --mode=validate",
     "seed:dry-run": "node scripts/seed-content.cjs --mode=dry-run",
-    "seed:prod": "node scripts/seed-content.cjs --mode=seed"
+    "seed:prod": "node scripts/seed-content.cjs --mode=seed",
+    "seed:verify": "node scripts/verify-seed.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
