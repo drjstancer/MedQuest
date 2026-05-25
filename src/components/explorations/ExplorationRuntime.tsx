@@ -1,11 +1,34 @@
 'use client';
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
-import CinematicIntro from '@/components/cinematic/CinematicIntro';
-import { motion, AnimatePresence } from 'framer-motion';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
 import CareerSpotlightCard from '@/components/careers/CareerSpotlightCard';
-import { saveJourneyEntry, } from '@/lib/journey-storage';
+import CinematicIntro from '@/components/cinematic/CinematicIntro';
+import { saveJourneyEntry } from '@/lib/journey-storage';
+import type {
+  Career,
+  Clue,
+  Exploration,
+  ReflectionPrompt,
+} from '@/types/exploration';
+
+interface ExplorationRuntimeProps {
+  exploration: Exploration | null;
+  career: Career | null;
+  clues: Clue[];
+  reflections: ReflectionPrompt[];
+}
+
+const INITIAL_SCORE = 100;
+const INITIAL_SECONDS = 45;
+const INCORRECT_GUESS_MESSAGE_MS = 1500;
 
 const reflectionChoices = [
   'Leadership',
@@ -16,50 +39,118 @@ const reflectionChoices = [
   'Technology & equipment',
   'Physical movement & activity',
   'Long-term patient support',
-];
+] as const;
+
+const careerDistractors = [
+  'Registered Nurse',
+  'Physical Therapist',
+  'Athletic Trainer',
+  'Emergency Medical Technician',
+  'Family Medicine Physician',
+] as const;
+
+function stableOffset(seed: string, optionCount: number) {
+  if (optionCount === 0) return 0;
+
+  let hash = 0;
+
+  for (const character of seed) {
+    hash =
+      (hash * 31 + character.charCodeAt(0)) %
+      optionCount;
+  }
+
+  return hash;
+}
+
+function buildCareerOptions(
+  careerTitle: string,
+  explorationId: string
+) {
+  const options = [
+    careerTitle,
+    ...careerDistractors.filter(
+      (option) => option !== careerTitle
+    ),
+  ].slice(0, 4);
+
+  const offset = stableOffset(
+    `${explorationId}:${careerTitle}`,
+    options.length
+  );
+
+  return [
+    ...options.slice(offset),
+    ...options.slice(0, offset),
+  ];
+}
 
 export default function ExplorationRuntime({
   exploration,
   career,
   clues,
   reflections,
-}: any) {
-  const [currentClueIndex, setCurrentClueIndex] = useState(0);
-const [score, setScore] = useState(100);
-
-
-const [gameComplete, setGameComplete] = useState(false);
-
-const [incorrectGuess, setIncorrectGuess] = useState(false);
-
-const [secondsRemaining, setSecondsRemaining] = useState(45);
-const [hasStarted, setHasStarted] = useState(false);
-const [selectedReflection, setSelectedReflection] =
-  useState<string | null>(null);
+}: ExplorationRuntimeProps) {
+  const [currentClueIndex, setCurrentClueIndex] =
+    useState(0);
+  const [score, setScore] = useState(INITIAL_SCORE);
+  const [gameComplete, setGameComplete] =
+    useState(false);
+  const [incorrectGuess, setIncorrectGuess] =
+    useState(false);
+  const [secondsRemaining, setSecondsRemaining] =
+    useState(INITIAL_SECONDS);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [
+    selectedReflection,
+    setSelectedReflection,
+  ] = useState<string | null>(null);
   const [pendingGuess, setPendingGuess] =
-  useState<string | null>(null);
-  
-   const guessOptions = [
-  career.title,
-  'Registered Nurse',
-  'Physical Therapist',
-  'Athletic Trainer',
-].sort(() => Math.random() - 0.5);
-    useEffect(() => {
-  if (!hasStarted || gameComplete) return;
+    useState<string | null>(null);
+  const incorrectGuessTimeoutRef =
+    useRef<number | null>(null);
 
-  if (secondsRemaining <= 0) {
-    setGameComplete(true);
+  const revealMode =
+    gameComplete || secondsRemaining <= 0;
 
-    return;
-  }
+  const guessOptions = useMemo(() => {
+    if (!exploration || !career) return [];
 
-  const timer = setInterval(() => {
-    setSecondsRemaining((prev) => prev - 1);
-  }, 1000);
+    return buildCareerOptions(
+      career.title,
+      exploration.id
+    );
+  }, [career, exploration]);
 
-  return () => clearInterval(timer);
-}, [secondsRemaining, gameComplete]);
+  const visibleClues = useMemo(
+    () => clues.slice(0, currentClueIndex + 1),
+    [clues, currentClueIndex]
+  );
+
+  const activeClue = clues[currentClueIndex];
+  const reflection = reflections[0];
+
+  useEffect(() => {
+    if (!hasStarted || revealMode) return;
+
+    const timer = window.setInterval(() => {
+      setSecondsRemaining((previousSeconds) =>
+        Math.max(previousSeconds - 1, 0)
+      );
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [hasStarted, revealMode]);
+
+  useEffect(() => {
+    return () => {
+      if (incorrectGuessTimeoutRef.current) {
+        window.clearTimeout(
+          incorrectGuessTimeoutRef.current
+        );
+      }
+    };
+  }, []);
 
   if (!exploration || !career) {
     return (
@@ -71,81 +162,78 @@ const [selectedReflection, setSelectedReflection] =
     );
   }
 
- function handleGuess(selectedCareer: string) {
-  setPendingGuess(selectedCareer);
-}
-
-function submitReflectionChoice() {
-  if (!career || !exploration || !pendingGuess) return;
-
-saveJourneyEntry({
-  explorationTitle: exploration.title,
-
-  selectedCareer: pendingGuess,
-
-  reflectionChoice:
-    selectedReflection || 'Unknown',
-
-  wasCorrect:
-    pendingGuess === career.title,
-
-  completedAt: new Date().toISOString(),
-});
-
-  if (pendingGuess === career.title) {
-    setGameComplete(true);
-
-    return;
+  function handleGuess(selectedCareer: string) {
+    setPendingGuess(selectedCareer);
   }
 
-  setIncorrectGuess(true);
+  function submitReflectionChoice() {
+    if (!career || !exploration || !pendingGuess) {
+      return;
+    }
 
-  setScore((prev) => Math.max(prev - 10, 0));
+    saveJourneyEntry({
+      explorationTitle: exploration.title,
+      selectedCareer: pendingGuess,
+      reflectionChoice:
+        selectedReflection || 'Unknown',
+      wasCorrect: pendingGuess === career.title,
+      completedAt: new Date().toISOString(),
+    });
 
-  setSecondsRemaining((prev) =>
-    Math.max(prev - 5, 0)
-  );
+    if (pendingGuess === career.title) {
+      setGameComplete(true);
 
-  setTimeout(() => {
-    setIncorrectGuess(false);
-  }, 1500);
+      return;
+    }
 
-  if (
-    currentClueIndex <
-    clues.length - 1
-  ) {
-    setCurrentClueIndex((prev) => prev + 1);
+    setIncorrectGuess(true);
+    setScore((previousScore) =>
+      Math.max(previousScore - 10, 0)
+    );
+    setSecondsRemaining((previousSeconds) =>
+      Math.max(previousSeconds - 5, 0)
+    );
+
+    if (incorrectGuessTimeoutRef.current) {
+      window.clearTimeout(
+        incorrectGuessTimeoutRef.current
+      );
+    }
+
+    incorrectGuessTimeoutRef.current =
+      window.setTimeout(() => {
+        setIncorrectGuess(false);
+      }, INCORRECT_GUESS_MESSAGE_MS);
+
+    if (currentClueIndex < clues.length - 1) {
+      setCurrentClueIndex(
+        (previousIndex) => previousIndex + 1
+      );
+    }
+
+    setPendingGuess(null);
+    setSelectedReflection(null);
   }
-
-  setPendingGuess(null);
-  setSelectedReflection(null);
-}
-
-  const activeClue = clues[currentClueIndex];
-
-  const revealMode = gameComplete;
 
   if (!hasStarted) {
- 
     return (
-    <CinematicIntro
-      title={exploration.title}
-      intro={exploration.cinematicIntro}
-      onBegin={() => setHasStarted(true)}
-    />
-  );
-}
-const reflection = reflections?.[0];
+      <CinematicIntro
+        title={exploration.title}
+        intro={exploration.cinematicIntro}
+        onBegin={() => setHasStarted(true)}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#020817] text-white px-6 py-12">
       <div className="max-w-5xl mx-auto">
-
-<Link
-  href="/explorations"
-  className="inline-flex items-center gap-2 text-cyan-300 hover:text-cyan-200 transition-colors mb-10"
->
-  ← Back to Exploration Hub
-</Link>
+        <Link
+          href="/explorations"
+          className="inline-flex items-center gap-2 text-cyan-300 hover:text-cyan-200 transition-colors mb-10"
+        >
+          â† Back to Exploration Hub
+        </Link>
 
         <div className="mb-10">
           <p className="uppercase tracking-[0.35em] text-cyan-400 text-xs mb-4">
@@ -159,179 +247,176 @@ const reflection = reflections?.[0];
           <p className="max-w-3xl text-lg text-slate-300 leading-relaxed">
             {exploration.cinematicIntro}
           </p>
+
           <div className="mt-8 flex flex-wrap gap-4">
-  <div className="px-5 py-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.05]">
-    <p className="text-xs uppercase tracking-[0.25em] text-cyan-300 mb-1">
-      Score
-    </p>
+            <div className="px-5 py-3 rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.05]">
+              <p className="text-xs uppercase tracking-[0.25em] text-cyan-300 mb-1">
+                Score
+              </p>
 
-    <p className="text-2xl font-black">
-      {score}
-    </p>
-  </div>
+              <p className="text-2xl font-black">
+                {score}
+              </p>
+            </div>
 
-  <div className="px-5 py-3 rounded-2xl border border-white/10 bg-white/[0.03]">
-    <p className="text-xs uppercase tracking-[0.25em] text-slate-400 mb-1">
-      Time Remaining
-    </p>
+            <div className="px-5 py-3 rounded-2xl border border-white/10 bg-white/[0.03]">
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-400 mb-1">
+                Time Remaining
+              </p>
 
-    <p className="text-2xl font-black">
-      {secondsRemaining}s
-    </p>
-  </div>
-</div>
+              <p className="text-2xl font-black">
+                {secondsRemaining}s
+              </p>
+            </div>
+          </div>
         </div>
 
         {!revealMode && activeClue && (
           <AnimatePresence mode="wait">
-  <motion.div
-    key={activeClue.id}
-   initial={{
-  opacity: 0,
-  scale: 0.96,
-  filter: 'blur(8px)',
-  y: 24,
-}}
+            <motion.div
+              key={activeClue.id}
+              initial={{
+                opacity: 0,
+                scale: 0.96,
+                filter: 'blur(8px)',
+                y: 24,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                filter: 'blur(0px)',
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+                scale: 0.98,
+                filter: 'blur(6px)',
+                y: -18,
+              }}
+              transition={{
+                duration: 0.55,
+                ease: 'easeOut',
+              }}
+              className="rounded-3xl border border-white/10 bg-white/[0.03] p-10 mb-8"
+            >
+              <div className="mb-6 flex items-center justify-between">
+                <span className="uppercase tracking-[0.3em] text-cyan-400 text-xs">
+                  Clue {activeClue.order}
+                </span>
 
-animate={{
-  opacity: 1,
-  scale: 1,
-  filter: 'blur(0px)',
-  y: 0,
-}}
+                <span className="text-sm text-slate-400">
+                  -{activeClue.timePenaltySeconds}s
+                  penalty
+                </span>
+              </div>
 
-exit={{
-  opacity: 0,
-  scale: 0.98,
-  filter: 'blur(6px)',
-  y: -18,
-}}
+              <div className="space-y-4">
+                {visibleClues.map((clue, index) => (
+                  <motion.div
+                    key={clue.id}
+                    initial={{
+                      opacity: 0,
+                      y: 20,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                    }}
+                    transition={{
+                      duration: 0.4,
+                      delay: index * 0.08,
+                    }}
+                    className={`rounded-2xl border p-6 ${
+                      index === currentClueIndex
+                        ? 'border-cyan-400/40 bg-cyan-400/[0.05]'
+                        : 'border-white/10 bg-white/[0.03]'
+                    }`}
+                  >
+                    <p className="uppercase tracking-[0.25em] text-cyan-300 text-xs mb-3">
+                      Clue {clue.order}
+                    </p>
 
-transition={{
-  duration: 0.55,
-  ease: 'easeOut',
-}}
-    className="rounded-3xl border border-white/10 bg-white/[0.03] p-10 mb-8"
-  >
-            <div className="mb-6 flex items-center justify-between">
-              <span className="uppercase tracking-[0.3em] text-cyan-400 text-xs">
-                Clue {activeClue.order}
-              </span>
+                    <p className="text-2xl md:text-3xl font-bold leading-relaxed">
+                      {clue.clueText}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
 
-              <span className="text-sm text-slate-400">
-                -{activeClue.timePenaltySeconds}s penalty
-              </span>
-            </div>
+              <div className="mt-10">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {guessOptions.map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => handleGuess(option)}
+                      className={`rounded-2xl border px-5 py-4 text-left transition-all duration-300 ${
+                        pendingGuess === option
+                          ? 'border-cyan-400 bg-cyan-400/20'
+                          : 'border-white/10 bg-white/[0.03] hover:border-cyan-400/40'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
 
-            <div className="space-y-4">
-  {clues
-    .slice(0, currentClueIndex + 1)
-    .map((clue: any, index: number) => (
-      <motion.div
-        key={clue.id}
-        initial={{
-          opacity: 0,
-          y: 20,
-        }}
-        animate={{
-          opacity: 1,
-          y: 0,
-        }}
-        transition={{
-          duration: 0.4,
-          delay: index * 0.08,
-        }}
-        className={`rounded-2xl border p-6 ${
-          index === currentClueIndex
-            ? 'border-cyan-400/40 bg-cyan-400/[0.05]'
-            : 'border-white/10 bg-white/[0.03]'
-        }`}
-      >
-        <p className="uppercase tracking-[0.25em] text-cyan-300 text-xs mb-3">
-          Clue {clue.order}
-        </p>
+                {pendingGuess && (
+                  <motion.div
+                    initial={{
+                      opacity: 0,
+                      y: 20,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                    }}
+                    className="mt-8 rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.05] p-8"
+                  >
+                    <p className="uppercase tracking-[0.3em] text-cyan-300 text-xs mb-4">
+                      Journey Insight
+                    </p>
 
-        <p className="text-2xl md:text-3xl font-bold leading-relaxed">
-          {clue.clueText}
-        </p>
-      </motion.div>
-    ))}
-</div>
+                    <h3 className="text-2xl font-black mb-6">
+                      What made you choose this role?
+                    </h3>
 
-            <div className="mt-10">
-  <div className="grid gap-4 md:grid-cols-2">
-    {guessOptions.map((option) => (
-  <button
-    key={option}
-    onClick={() => handleGuess(option)}
-    className={`rounded-2xl border px-5 py-4 text-left transition-all duration-300 ${
-      pendingGuess === option
-        ? 'border-cyan-400 bg-cyan-400/20'
-        : 'border-white/10 bg-white/[0.03] hover:border-cyan-400/40'
-    }`}
-  >
-    {option}
-  </button>
-))}
-  </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {reflectionChoices.map((choice) => (
+                        <button
+                          key={choice}
+                          onClick={() =>
+                            setSelectedReflection(choice)
+                          }
+                          className={`rounded-2xl border px-5 py-4 text-left transition-all duration-300 ${
+                            selectedReflection === choice
+                              ? 'border-cyan-400 bg-cyan-400/20'
+                              : 'border-white/10 bg-white/[0.03] hover:border-cyan-400/40'
+                          }`}
+                        >
+                          {choice}
+                        </button>
+                      ))}
+                    </div>
 
-{pendingGuess && (
-  <motion.div
-    initial={{
-      opacity: 0,
-      y: 20,
-    }}
-    animate={{
-      opacity: 1,
-      y: 0,
-    }}
-    className="mt-8 rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.05] p-8"
-  >
-    <p className="uppercase tracking-[0.3em] text-cyan-300 text-xs mb-4">
-      Journey Insight
-    </p>
+                    <button
+                      disabled={!selectedReflection}
+                      onClick={submitReflectionChoice}
+                      className="mt-8 rounded-2xl bg-cyan-400 px-6 py-4 font-black text-slate-950 disabled:opacity-40"
+                    >
+                      Continue Exploration
+                    </button>
+                  </motion.div>
+                )}
 
-    <h3 className="text-2xl font-black mb-6">
-      What made you choose this role?
-    </h3>
-
-    <div className="grid gap-3 md:grid-cols-2">
-      {reflectionChoices.map((choice) => (
-        <button
-          key={choice}
-          onClick={() =>
-            setSelectedReflection(choice)
-          }
-          className={`rounded-2xl border px-5 py-4 text-left transition-all duration-300 ${
-            selectedReflection === choice
-              ? 'border-cyan-400 bg-cyan-400/20'
-              : 'border-white/10 bg-white/[0.03] hover:border-cyan-400/40'
-          }`}
-        >
-          {choice}
-        </button>
-      ))}
-    </div>
-
-    <button
-      disabled={!selectedReflection}
-      onClick={submitReflectionChoice}
-      className="mt-8 rounded-2xl bg-cyan-400 px-6 py-4 font-black text-slate-950 disabled:opacity-40"
-    >
-      Continue Exploration
-    </button>
-  </motion.div>
-)}
-
-  {incorrectGuess && (
-    <p className="mt-4 text-red-400 font-semibold">
-      Incorrect guess. Time penalty applied.
-    </p>
-    )}
-</div>
+                {incorrectGuess && (
+                  <p className="mt-4 text-red-400 font-semibold">
+                    Incorrect guess. Time penalty applied.
+                  </p>
+                )}
+              </div>
             </motion.div>
-</AnimatePresence>
-)}
+          </AnimatePresence>
+        )}
 
         {revealMode && (
           <div className="rounded-3xl border border-cyan-400/30 bg-cyan-400/[0.05] p-10">
@@ -348,29 +433,28 @@ transition={{
             </p>
 
             <CareerSpotlightCard career={career} />
-            
 
-                            {reflection && (
-                <div className="mt-8 rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.05] p-8">
-                  <p className="uppercase tracking-[0.3em] text-cyan-300 text-xs mb-4">
-                    Reflection Prompt
-                  </p>
+            {reflection && (
+              <div className="mt-8 rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.05] p-8">
+                <p className="uppercase tracking-[0.3em] text-cyan-300 text-xs mb-4">
+                  Reflection Prompt
+                </p>
 
-                  <p className="text-2xl font-semibold leading-relaxed">
-                    {reflection.prompt}
-                  </p>
-                </div>
-              )}
+                <p className="text-2xl font-semibold leading-relaxed">
+                  {reflection.prompt}
+                </p>
+              </div>
+            )}
 
             <div className="mt-10 flex justify-center">
-  <Link
-    href="/explorations"
-    className="rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.05] px-8 py-4 text-cyan-200 hover:border-cyan-400/40 hover:bg-cyan-400/[0.08] transition-all duration-300"
-  >
-    Explore More Healthcare Pathways
-  </Link>
-</div>
-</div>
+              <Link
+                href="/explorations"
+                className="rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.05] px-8 py-4 text-cyan-200 hover:border-cyan-400/40 hover:bg-cyan-400/[0.08] transition-all duration-300"
+              >
+                Explore More Healthcare Pathways
+              </Link>
+            </div>
+          </div>
         )}
       </div>
     </main>
